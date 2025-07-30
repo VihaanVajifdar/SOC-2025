@@ -1,0 +1,103 @@
+# Facial Expression Recognition using CNN on FER 2013 Dataset
+
+# 1. Imports
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import tensorflow as tf
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, BatchNormalization
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix
+
+# 2. Load Dataset
+data = pd.read_csv('fer2013.csv')  # make sure it's in your working directory
+
+# 3. Preprocess Dataset
+emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral']
+
+def preprocess_data(data):
+    pixels = data['pixels'].tolist()
+    width, height = 48, 48
+    faces = []
+    
+    for pixel_sequence in pixels:
+        face = [int(pixel) for pixel in pixel_sequence.split()]
+        face = np.asarray(face).reshape(width, height)
+        face = face.astype('float32') / 255.0  # normalize to [0,1]
+        faces.append(face)
+
+    faces = np.asarray(faces)
+    faces = np.expand_dims(faces, -1)  # (n, 48, 48, 1)
+    emotions = pd.get_dummies(data['emotion']).values  # One-hot encoding
+    return faces, emotions
+
+faces, emotions = preprocess_data(data)
+
+# 4. Split Data
+X_train, X_temp, y_train, y_temp = train_test_split(faces, emotions, test_size=0.2, random_state=42)
+X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+# 5. Data Augmentation
+datagen = ImageDataGenerator(
+    rotation_range=10,
+    zoom_range=0.1,
+    width_shift_range=0.1,
+    height_shift_range=0.1,
+    horizontal_flip=True
+)
+datagen.fit(X_train)
+
+# 6. Model Architecture
+model = Sequential([
+    Conv2D(32, (3,3), activation='relu', input_shape=(48, 48, 1)),
+    BatchNormalization(),
+    MaxPooling2D(2,2),
+    Dropout(0.25),
+
+    Conv2D(64, (3,3), activation='relu'),
+    BatchNormalization(),
+    MaxPooling2D(2,2),
+    Dropout(0.25),
+
+    Conv2D(128, (3,3), activation='relu'),
+    BatchNormalization(),
+    MaxPooling2D(2,2),
+    Dropout(0.25),
+
+    Flatten(),
+    Dense(256, activation='relu'),
+    Dropout(0.5),
+    Dense(7, activation='softmax')  # 7 emotion classes
+])
+
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+# 7. Train Model
+history = model.fit(datagen.flow(X_train, y_train, batch_size=64),
+                    epochs=30,
+                    validation_data=(X_val, y_val))
+
+# 8. Evaluate Model
+test_loss, test_accuracy = model.evaluate(X_test, y_test)
+print(f"Test Accuracy: {test_accuracy * 100:.2f}%")
+
+# 9. Classification Report & Confusion Matrix
+y_pred = model.predict(X_test)
+y_pred_labels = np.argmax(y_pred, axis=1)
+y_true_labels = np.argmax(y_test, axis=1)
+
+print("\nClassification Report:\n")
+print(classification_report(y_true_labels, y_pred_labels, target_names=emotion_labels))
+
+# Confusion Matrix
+plt.figure(figsize=(8,6))
+cm = confusion_matrix(y_true_labels, y_pred_labels)
+sns.heatmap(cm, annot=True, fmt='d', xticklabels=emotion_labels, yticklabels=emotion_labels, cmap='Blues')
+plt.xlabel('Predicted')
+plt.ylabel('True')
+plt.title('Confusion Matrix')
+plt.show()
